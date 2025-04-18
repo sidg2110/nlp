@@ -1,6 +1,7 @@
 import networkx as nx
 from typing import List
 import matplotlib.pyplot as plt
+import numpy as np
 
 class TaxonomyGraph(nx.DiGraph):
     def __init__(self, edges):
@@ -50,3 +51,29 @@ class TaxonomyGraph(nx.DiGraph):
         Assumes unweighted di-graph 
         """
         return nx.shortest_path_length(self, node_1, node_2)
+    
+    def level_embeddings(self):
+        root = str(self.root)
+        levels = nx.single_source_shortest_path_length(self, root)
+        max_level = 0
+        for node, level in level.items():
+            max_level = max(max_level, level)
+        final_embed = [np.array([])]*(max_level+1)
+        for node, level in level.items():
+            final_embed[level] = final_embed[level]+self.node_embeddings[str(node)]
+        for i in range(len(final_embed)):
+            final_embed[i] = ...
+        self.level_embed = final_embed
+
+    def depth_embeddings(self):
+        root = str(self.root)
+        self.depth_embed = ()
+        for node in self.nodes:
+            if self.out_degree(node) != 0:
+                continue
+            path = nx.shortest_path(self, source=root, target=str(node))
+            self.depth_embed[str(node)] = np.array([])
+            for path_node in path:
+                self.depth_embed[str(path_node)] = np.concat(self.depth_embed[str(path_node)], self.node_embeddings[str(path_node)])
+            self.depth_embed[str(node)] = ...
+
