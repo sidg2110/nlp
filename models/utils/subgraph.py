@@ -49,7 +49,6 @@ class SubgraphManager:
                     iter += 1
                     continue
                 if node_similarity[iter] >= queue_level*similarity_threshold and node_queue[iter] != exclude_node[i]:
-                if node_similarity[iter] >= queue_level*similarity_threshold and node_queue[iter] != exclude_node[i]:
                     if str(node_queue[iter]) != str(node_parent[iter]):
                         if reverse_bool[iter] == 0.0:
                             subgraph.add_edge(str(node_queue[iter]), str(node_parent[iter]))
