@@ -4,15 +4,18 @@ import networkx as nx
 import numpy as np
 import random
 from networkx.algorithms.similarity import graph_edit_distance
+import random
+from networkx.algorithms.similarity import graph_edit_distance
 
 class SubgraphManager:
     def __init__(self, word_embeddings):
         self.word_embeddings = word_embeddings
 
     def get_subgraph_size(self, node: str, taxonomy: TaxonomyGraph) -> int:
-        return int(10*np.exp(-0.2*taxonomy.out_degree(node)))
+        return int(10*np.exp(-0.2*taxonomy.out_degree(node)))*np.exp(-0.2*taxonomy.out_degree(node))
         pass
 
+    def create_positive_subgraph(self, queries: List[str], gt_parents: List[str], taxonomy: TaxonomyGraph, exclude_node = []) -> List[TaxonomyGraph]:
     def create_positive_subgraph(self, queries: List[str], gt_parents: List[str], taxonomy: TaxonomyGraph, exclude_node = []) -> List[TaxonomyGraph]:
         """
         For each query, returns a DiGraph
@@ -22,6 +25,7 @@ class SubgraphManager:
         similarity_threshold = 0.1
         graphs = []
         for i in range(len(queries)):
+            size = self.get_subgraph_size(gt_parents[i], taxonomy)
             size = self.get_subgraph_size(gt_parents[i], taxonomy)
             node_queue = [gt_parents[i], "NULL"]
             node_similarity = [1.0, -1.0]
@@ -44,6 +48,7 @@ class SubgraphManager:
                     queue_level += 1
                     iter += 1
                     continue
+                if node_similarity[iter] >= queue_level*similarity_threshold and node_queue[iter] != exclude_node[i]:
                 if node_similarity[iter] >= queue_level*similarity_threshold and node_queue[iter] != exclude_node[i]:
                     if str(node_queue[iter]) != str(node_parent[iter]):
                         if reverse_bool[iter] == 0.0:

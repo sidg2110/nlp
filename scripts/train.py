@@ -6,6 +6,7 @@ from typing import List
 from models.utils.taxonomy_graph import TaxonomyGraph
 from models.utils.embeddings import Embeddings
 from models.utils.evaluator import Evaluator
+from models.utils.subgraph import SimpleTaxonomyModel, TaxonomyDataset, SubgraphManager, cosine_similarity, vectorizer
 from models.utils.subgraph import SubgraphManager
 from models.model import TaxonomyExpander
 from models.utils.subgraph import SimpleTaxonomyModel, TaxonomyDataset, SubgraphManager, cosine_similarity, vectorizer
