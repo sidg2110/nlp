@@ -4,13 +4,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 class TaxonomyGraph(nx.DiGraph):
-    def __init__(self, edges):
+    def __init__(self, edges, node_embeddings={}):
         super().__init__(edges)
         self.root = None
-        self.node_embeddings = ...  # will initialise later. right now use it
+        self.node_embeddings = node_embeddings
+        self.level_embed = None
         self._remove_transitive_edges()
         self._set_root()
-    
+
     def _remove_transitive_edges(self):
         """
         Removes all transitive edges from the graph.
@@ -33,11 +34,12 @@ class TaxonomyGraph(nx.DiGraph):
         """
         Sets the root of the taxonomy to the concept with no predecessor
         """
+        # print(f"Nodes: {len(self.nodes)}")
         for node in self.nodes:
             if self.in_degree(node) == 0:
                 self.root = node
                 break
-        assert self.root != None
+        # assert self.root != None
 
     def get_lca(self, node_1: str, node_2: str) -> str:
         """
@@ -54,26 +56,27 @@ class TaxonomyGraph(nx.DiGraph):
     
     def level_embeddings(self):
         root = str(self.root)
+        # print(f"Root: {root}")
         levels = nx.single_source_shortest_path_length(self, root)
         max_level = 0
-        for node, level in level.items():
+        for node, level in levels.items():
             max_level = max(max_level, level)
-        final_embed = [np.array([])]*(max_level+1)
-        for node, level in level.items():
+        final_embed = [np.zeros(768)]*(max_level+1)
+        for node, level in levels.items():
             final_embed[level] = final_embed[level]+self.node_embeddings[str(node)]
-        for i in range(len(final_embed)):
-            final_embed[i] = ...
+        # for i in range(len(final_embed)):
+        #     final_embed[i] = ...
         self.level_embed = final_embed
 
-    def depth_embeddings(self):
-        root = str(self.root)
-        self.depth_embed = ()
-        for node in self.nodes:
-            if self.out_degree(node) != 0:
-                continue
-            path = nx.shortest_path(self, source=root, target=str(node))
-            self.depth_embed[str(node)] = np.array([])
-            for path_node in path:
-                self.depth_embed[str(path_node)] = np.concat(self.depth_embed[str(path_node)], self.node_embeddings[str(path_node)])
-            self.depth_embed[str(node)] = ...
+    # def depth_embeddings(self):
+    #     root = str(self.root)
+    #     self.depth_embed = ()
+    #     for node in self.nodes:
+    #         if self.out_degree(node) != 0:
+    #             continue
+    #         path = nx.shortest_path(self, source=root, target=str(node))
+    #         self.depth_embed[str(node)] = np.array([])
+    #         for path_node in path:
+    #             self.depth_embed[str(path_node)] = np.concat(self.depth_embed[str(path_node)], self.node_embeddings[str(path_node)])
+    #         self.depth_embed[str(node)] = ...
 

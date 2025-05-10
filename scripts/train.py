@@ -1,26 +1,34 @@
-import hydra
 import torch
 import numpy as np
 import json, sys, os
 from typing import List
-from omegaconf import DictConfig
 
 from models.utils.taxonomy_graph import TaxonomyGraph
 from models.utils.embeddings import Embeddings
 from models.utils.evaluator import Evaluator
-# from models.model_v1 import TaxoExpan
-# from models.model_v2 import TaxoExpan
-from models.model_v3 import TaxoExpan
-from trainer import Trainer
-from utils import process_train_data, strip_and_lowercase, process_definitions, get_torch_taxonomy_graph
+from models.utils.subgraph import SubgraphManager
+from models.model import TaxonomyExpander
+from models.utils.subgraph import SimpleTaxonomyModel, TaxonomyDataset, SubgraphManager, cosine_similarity, vectorizer
+from utils import process_train_data, strip_and_lowercase, process_definitions
 
+from torch.utils.data import Dataset, DataLoader
+from numpy import dot
+from numpy.linalg import norm
+import torch
+import torch.nn as nn
+import random
+import torch.nn.functional as F
+from gensim.models import KeyedVectors
 
-@hydra.main(config_path=".", config_name="config", version_base=None)
-def main(args: DictConfig):
-    TRAIN_FILE = os.path.join(args.base_path, f"data/flame/{args.dataset}/{args.dataset}_train.taxo")
-    EVAL_FILE = os.path.join(args.base_path, f"data/flame/{args.dataset}/{args.dataset}_eval.terms")
-    EVAL_GT = os.path.join(args.base_path, f"data/flame/{args.dataset}/{args.dataset}_eval.gt")
-    DICT_FILE = os.path.join(args.base_path, f"data/flame/{args.dataset}/dic.json")
+WORD2VEC = 'C:/Users/ee121/Desktop/nlp/word2vec-google-news-300'
+
+def main():
+    word_embeddings = KeyedVectors.load_word2vec_format(WORD2VEC, binary=True)
+    sys.path.append(r"C:/Users/ee121/Desktop/nlp")
+    TRAIN_FILE = "C:/Users/ee121/Desktop/nlp/data/environment/environment_train.taxo"
+    EVAL_FILE = "C:/Users/ee121/Desktop/nlp/data/environment/environment_eval.terms"
+    EVAL_GT = "C:/Users/ee121/Desktop/nlp/data/environment/environment_eval.gt"
+    DICT_FILE = "C:/Users/ee121/Desktop/nlp/data/environment/dic.json"
 
     with open(TRAIN_FILE, 'r') as file:
         edges = file.readlines()
@@ -32,18 +40,13 @@ def main(args: DictConfig):
         definitions = json.load(file)
     
     definitions = process_definitions(definitions)
-
     edges = process_train_data(edges)
     eval_concepts = strip_and_lowercase(eval_concepts)
     eval_gt = strip_and_lowercase(eval_gt)
 
     print(f"Pre-processing complete")
 
-    embeddings_manager = Embeddings()
-    taxonomy_graph = TaxonomyGraph(edges)
     
-    print(f"Taxonomy created")
-
     concepts = []
     concept2index = {}
     for (parent, child) in edges:
@@ -54,50 +57,73 @@ def main(args: DictConfig):
             concept2index[child] = len(concepts)
             concepts.append(child)
     
-    device = 'cuda'
+    embeddings_manager = Embeddings()
+    concept_embeddings = embeddings_manager.get_concept_embeddings(concepts, definitions)
+    # print(f"Edges: {len(edges)}")
+    taxonomy_graph = TaxonomyGraph(edges, concept_embeddings)
+    taxonomy_graph.level_embeddings()
+    print(f"Taxonomy created")
 
-    # For model v1
-    # print(f"Model v1")
-    # train_embeddings = embeddings_manager.get_term_embeddings(concepts)
-    # model = TaxoExpan(train_embeddings, device=device)
-    # eval_embeddings = embeddings_manager.get_term_embeddings(eval_concepts)
-    # print(f"Predicting...")
-    # predictions = model.predict_parents(eval_embeddings, concepts)
+    training_dataset = []
+    for node in taxonomy_graph.nodes():
+        if taxonomy_graph.out_degree(node) == 0:  # leaf
+            training_dataset.append((node, next(taxonomy_graph.predecessors(node))))
+    
+    training_dataset = random.sample(training_dataset, k=int(0.1 * len(training_dataset)))
 
-    # For model v2
-    # print(f"Model v2")
-    # print(f"Computing train embeddings...")
-    # train_embeddings = embeddings_manager.get_concept_embeddings(concepts, definitions)
-    # model = TaxoExpan(train_embeddings, device=device)
-    # print(f"Computing eval embeddings...")
-    # eval_embeddings = embeddings_manager.get_concept_embeddings(eval_concepts, definitions)
-    # print(f"Predicting...")
-    # predictions = model.predict_parents(eval_embeddings, concepts)
+    queries = [query for query, _ in training_dataset]
+    gt_parents = [parent for _, parent in training_dataset]
+    Manager = SubgraphManager(word_embeddings)
+    positive_subgraphs = Manager.create_positive_subgraph(queries, gt_parents, taxonomy_graph)
+    negative_subgraphs = Manager.create_negative_subgraph(queries, gt_parents, taxonomy_graph)
 
-    # For model v3
-    print(f"Model v3")
-    print(f"Computing train embeddings...")
-    train_embeddings = embeddings_manager.get_concept_embeddings(concepts, definitions)
-    train_edges = []
-    for edge in edges:
-        train_edges.append([concept2index[edge[0]], concept2index[edge[1]]])
-    train_edges = torch.tensor(train_edges)
-    torch_taxonomy_graph = get_torch_taxonomy_graph(train_embeddings, train_edges)
-    model = TaxoExpan(graph=torch_taxonomy_graph,
-                      in_dim=train_embeddings.shape[-1],
-                      hidden_dim=train_embeddings.shape[-1],
-                      out_dim=train_embeddings.shape[-1]
-                    )
-    print(f"Computing eval embeddings...")
-    eval_embeddings = embeddings_manager.get_concept_embeddings(eval_concepts, definitions)
-    trainer = Trainer(model, torch_taxonomy_graph, device, lr=1e-3)
-    trainer.train(eval_embeddings, eval_gt, epochs=1)
+    print("New dataset created")
 
-    # General to all models
-    # print(f"Computing Metrics...")
-    # accuracy = Evaluator.compute_accuracy(predictions, eval_gt)
-    # wu_palmer = Evaluator.compute_wu_palmer(predictions, eval_gt, taxonomy_graph)
-    # print(f"Accuracy: {accuracy}, Wu-Palmer: {wu_palmer}")
+    data = [(query, None) for query in queries]
+    dataset = TaxonomyDataset(data, taxonomy_graph, vectorizer, word_embeddings)
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
+
+    subgraph_predictor = SimpleTaxonomyModel(input_dim=768, hidden_dim=128, output_dim=len(taxonomy_graph.nodes))
+    optimizer = torch.optim.Adam(subgraph_predictor.parameters(), lr=1e-3)
+
+    print("subgraph predictor training started...")
+    n_epochs = 10
+    for epoch in range(n_epochs):
+        iter = 0
+        for query_vec in dataloader:
+            preds = subgraph_predictor(query_vec)
+            max_index = torch.argmax(preds).item()
+            subgraph = Manager.create_positive_subgraph([concepts[max_index]], [concepts[max_index]], taxonomy_graph)[0]
+            loss = torch.tensor(Manager.subgraph_similarity(subgraph, negative_subgraphs[iter]) - Manager.subgraph_similarity(subgraph, positive_subgraphs[iter]))
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            iter += 1
+        print(f"Epoch {epoch+1}, Loss: {loss.item():.4f}")
+
+    print("finetuning data")
+    finetuning_data = []
+    for query, parent in zip(queries, gt_parents):
+        finetuning_data.append({
+            "node": query,
+            "parent": parent,
+            "description": definitions[query]
+        })
+
+    model = TaxonomyExpander(subgraph_predictor)
+    print(f"finetuning started")
+    model.finetune(concepts, taxonomy_graph, finetuning_data)
+
+    print("evaluating")
+    predictions = []
+    for query in eval_concepts:
+        prompt = model.extract_subgraph_prompt(concepts, query, definitions[query])
+        prediction = model.predict_parent(prompt)
+        predictions.append(prediction)
+
+    accuracy = Evaluator.compute_accuracy(predictions, eval_gt)
+    wu_palmer = Evaluator.compute_wu_palmer(predictions, eval_gt, taxonomy_graph)
+    print(f"Accuracy: {accuracy}, Wu-Palmer: {wu_palmer}")
 
 if __name__=="__main__":
     main()

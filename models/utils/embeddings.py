@@ -5,7 +5,7 @@ from transformers import BertTokenizer, BertModel
 from gensim.models import KeyedVectors
 from tqdm import tqdm
 
-WORD2VEC = '/home/user/siddharth/nlp/embeddings/word2vec-google-news-300'
+WORD2VEC = 'C:/Users/ee121/Desktop/nlp/word2vec-google-news-300'
 
 class Embeddings:
     def __init__(self, word_embedding="word2vec", tokenizer="bert", embedding_model="bert", device="cpu"):
@@ -32,16 +32,20 @@ class Embeddings:
             embeddings.append(embedding)
         return torch.tensor(np.array(embeddings))
 
-    def get_concept_embeddings(self, concepts: List[str], definitions: dict[str, str]) -> torch.Tensor:
+    # def get_concept_embeddings(self, concepts: List[str], definitions: dict[str, str]) -> torch.Tensor:
+    def get_concept_embeddings(self, concepts: List[str], definitions: dict[str, str]) -> dict[str, np.array]:
         """
         Returns a tensor encoding the term and its definition using BERT
         """
-        concept_embeddings = []
+        # concept_embeddings = []
+        concept_embeddings = {}
         default_definition = "This concept has no definition"
         for concept in tqdm(concepts):
             definition = definitions.get(concept.lower(), default_definition)
             encoded_input = self.tokenizer(concept, definition, return_tensors='pt').to(self.device)
             with torch.no_grad():
                 embedding = self.embedding_model(**encoded_input)
-            concept_embeddings.append(embedding["last_hidden_state"][0][0].detach().cpu().numpy())
-        return torch.tensor(np.array(concept_embeddings))
+            # concept_embeddings.append(embedding["last_hidden_state"][0][0].detach().cpu().numpy())
+            concept_embeddings[concept] = embedding["last_hidden_state"][0][0].detach().cpu().numpy()
+        return concept_embeddings
+        # return torch.tensor(np.array(concept_embeddings))
