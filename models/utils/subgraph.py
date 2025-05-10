@@ -16,7 +16,6 @@ class SubgraphManager:
         pass
 
     def create_positive_subgraph(self, queries: List[str], gt_parents: List[str], taxonomy: TaxonomyGraph, exclude_node = []) -> List[TaxonomyGraph]:
-    def create_positive_subgraph(self, queries: List[str], gt_parents: List[str], taxonomy: TaxonomyGraph, exclude_node = []) -> List[TaxonomyGraph]:
         """
         For each query, returns a DiGraph
         """
