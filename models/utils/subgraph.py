@@ -2,6 +2,8 @@ from models.utils.taxonomy_graph import TaxonomyGraph
 from typing import List
 import networkx as nx
 import numpy as np
+import random
+from networkx.algorithms.similarity import graph_edit_distance
 
 # Rough signature. Can change if needed
 class SubgraphManager:
@@ -9,17 +11,19 @@ class SubgraphManager:
         pass
 
     def get_subgraph_size(self, node: str, taxonomy: TaxonomyGraph) -> int:
-        return 10
+        return 10*np.exp(-0.2*taxonomy.out_degree(node))
         pass
 
-    def create_subgraph_data(self, queries: List[str], gt_parents: List[str], taxonomy: TaxonomyGraph) -> List[TaxonomyGraph]:
+    def create_positive_subgraph(self, queries: List[str], gt_parents: List[str], taxonomy: TaxonomyGraph, exclude_node = []) -> List[TaxonomyGraph]:
         """
         For each query, returns a DiGraph
         """
+        if len(exclude_node) == 0:
+            exclue_node = ["NULLNULL"]*len(gt_parents)
         similarity_threshold = 0.1
         graphs = []
         for i in range(len(queries)):
-            size = self.get_subgraph_size(queries[i], taxonomy)
+            size = self.get_subgraph_size(gt_parents[i], taxonomy)
             node_queue = [gt_parents[i], "NULL"]
             node_similarity = [1.0, -1.0]
             node_parent = [gt_parents[i], "NULL"]
@@ -38,7 +42,7 @@ class SubgraphManager:
                     queue_level += 1
                     iter += 1
                     continue
-                if node_similarity[iter] >= queue_level*similarity_threshold:
+                if node_similarity[iter] >= queue_level*similarity_threshold and node_queue[iter] != exclude_node[i]:
                     if str(node_queue[iter]) != str(node_parent[iter]):
                         if reverse_bool[iter] == 0.0:
                             subgraph.add_edge(str(node_queue[iter]), str(node_parent[iter]))
@@ -68,4 +72,71 @@ class SubgraphManager:
             graphs.append(subgraph)
         return graphs
         pass
+
+    def create_negative_subgraph(self, queries: List[str], gt_parents: List[str], taxonomy: TaxonomyGraph) -> List[TaxonomyGraph]:
+        exclude_node = []
+        for i in range(len(gt_parents)):
+            random_node = random.choice(list(taxonomy.nodes))
+            exclude_node.append(random_node)
+        return self.create_positive_subgraph(queries, gt_parents, taxonomy, exclude_node)
     
+    def subgraph_similarity(self, taxonomy1: TaxonomyGraph, taxonomy2: TaxonomyGraph) -> float:
+        alpha = 0.5
+        nodes1 = set(taxonomy1.nodes)
+        nodes2 = set(taxonomy2.nodes)
+        jaccard_nodes = len(nodes1 & nodes2) / len(nodes1 | nodes2)
+        edit_distance = graph_edit_distance(taxonomy1, taxonomy2)
+        similarity_score = alpha * jaccard_nodes + (1-alpha) * (1 / (1 + edit_distance))
+        return similarity_score
+    
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class SimpleTaxonomyModel(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super().__init__()
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, output_dim)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        return F.softmax(self.fc2(x))  # logits
+
+from torch.utils.data import Dataset, DataLoader
+from numpy import dot
+from numpy.linalg import norm
+
+class TaxonomyDataset(Dataset):
+    def __init__(self, data, seed_taxonomy: TaxonomyGraph, query_vectorizer):
+        self.data = data  # list of (query, taxonomy_graph)
+        self.seed_nodes = list(seed_taxonomy.nodes)
+        self.vectorizer = query_vectorizer
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        query, taxonomy_graph = self.data[idx]
+        query_vec = self.vectorizer(query)
+
+        # Make binary vector for the taxonomy nodes
+        label_vec = torch.zeros(len(self.seed_nodes))
+        present_nodes = set(taxonomy_graph.nodes())
+        for i, node in enumerate(self.seed_nodes):
+            if node in present_nodes:
+                label_vec[i] = 1.0
+
+        return query_vec, label_vec
+
+def cosine_similarity(a, b):
+    return dot(a, b) / (norm(a) * norm(b))
+
+# Example: dummy vectorizer that turns string into random vector
+def vectorizer(query, seed_taxonomy):
+    word_embed = ...
+    final_vector = 0
+    for i in range(len(seed_taxonomy.level_embed)):
+        final_vector += cosine_similarity(word_embed, seed_taxonomy.level_embed[i])*seed_taxonomy.level_embed[i]
+    return final_vector
+

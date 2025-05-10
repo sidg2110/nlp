@@ -8,6 +8,7 @@ from omegaconf import DictConfig
 from models.utils.taxonomy_graph import TaxonomyGraph
 from models.utils.embeddings import Embeddings
 from models.utils.evaluator import Evaluator
+from models.utils.subgraph import SimpleTaxonomyModel, TaxonomyDataset, SubgraphManager, cosine_similarity, vectorizer
 # from models.model_v1 import TaxoExpan
 # from models.model_v2 import TaxoExpan
 from models.model_v3 import TaxoExpan
@@ -54,50 +55,42 @@ def main(args: DictConfig):
             concept2index[child] = len(concepts)
             concepts.append(child)
     
-    device = 'cuda'
+    from torch.utils.data import Dataset, DataLoader
+    from numpy import dot
+    from numpy.linalg import norm
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
 
-    # For model v1
-    # print(f"Model v1")
-    # train_embeddings = embeddings_manager.get_term_embeddings(concepts)
-    # model = TaxoExpan(train_embeddings, device=device)
-    # eval_embeddings = embeddings_manager.get_term_embeddings(eval_concepts)
-    # print(f"Predicting...")
-    # predictions = model.predict_parents(eval_embeddings, concepts)
+    queries = ...
+    gt_parents = ...
+    seed_taxonomy = taxonomy_graph
+    Manager = SubgraphManager()
+    positive_subgraphs = Manager.create_positive_subgraph(queries, gt_parents, seed_taxonomy)
+    negative_subgraphs = Manager.create_negative_subgraph(queries, gt_parents, seed_taxonomy)
 
-    # For model v2
-    # print(f"Model v2")
-    # print(f"Computing train embeddings...")
-    # train_embeddings = embeddings_manager.get_concept_embeddings(concepts, definitions)
-    # model = TaxoExpan(train_embeddings, device=device)
-    # print(f"Computing eval embeddings...")
-    # eval_embeddings = embeddings_manager.get_concept_embeddings(eval_concepts, definitions)
-    # print(f"Predicting...")
-    # predictions = model.predict_parents(eval_embeddings, concepts)
+    data = ...
+    dataset = TaxonomyDataset(data, seed_taxonomy.nodes, vectorizer)
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
 
-    # For model v3
-    print(f"Model v3")
-    print(f"Computing train embeddings...")
-    train_embeddings = embeddings_manager.get_concept_embeddings(concepts, definitions)
-    train_edges = []
-    for edge in edges:
-        train_edges.append([concept2index[edge[0]], concept2index[edge[1]]])
-    train_edges = torch.tensor(train_edges)
-    torch_taxonomy_graph = get_torch_taxonomy_graph(train_embeddings, train_edges)
-    model = TaxoExpan(graph=torch_taxonomy_graph,
-                      in_dim=train_embeddings.shape[-1],
-                      hidden_dim=train_embeddings.shape[-1],
-                      out_dim=train_embeddings.shape[-1]
-                    )
-    print(f"Computing eval embeddings...")
-    eval_embeddings = embeddings_manager.get_concept_embeddings(eval_concepts, definitions)
-    trainer = Trainer(model, torch_taxonomy_graph, device, lr=1e-3)
-    trainer.train(eval_embeddings, eval_gt, epochs=1)
+    model = SimpleTaxonomyModel(input_dim=300, hidden_dim=128, output_dim=len(seed_taxonomy.nodes))
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    criterion = nn.BCEWithLogitsLoss()
 
-    # General to all models
-    # print(f"Computing Metrics...")
-    # accuracy = Evaluator.compute_accuracy(predictions, eval_gt)
-    # wu_palmer = Evaluator.compute_wu_palmer(predictions, eval_gt, taxonomy_graph)
-    # print(f"Accuracy: {accuracy}, Wu-Palmer: {wu_palmer}")
+    for epoch in range(10):
+        iter = 0
+        for query_vec, label_vec in dataloader:
+            preds = model(query_vec)
+            max_index = np.argmax(preds)
+            subgraph = Manager.create_positive_subgraph([concepts[max_index]], [concepts[max_index]], seed_taxonomy)
+            loss = Manager.subgraph_similarity(subgraph, negative_subgraphs[iter])-Manager.subgraph_similarity(subgraph, positive_subgraphs[iter])
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            iter += 1
+
+        print(f"Epoch {epoch+1}, Loss: {loss.item():.4f}")
 
 if __name__=="__main__":
     main()

@@ -56,10 +56,10 @@ class TaxonomyGraph(nx.DiGraph):
         root = str(self.root)
         levels = nx.single_source_shortest_path_length(self, root)
         max_level = 0
-        for node, level in level.items():
+        for node, level in levels.items():
             max_level = max(max_level, level)
         final_embed = [np.array([])]*(max_level+1)
-        for node, level in level.items():
+        for node, level in levels.items():
             final_embed[level] = final_embed[level]+self.node_embeddings[str(node)]
         for i in range(len(final_embed)):
             final_embed[i] = ...
